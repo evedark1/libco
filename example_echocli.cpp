@@ -63,6 +63,16 @@ static void SetAddr(const char *pszIP,const unsigned short shPort,struct sockadd
 
 }
 
+static int SetNonBlock(int fd)
+{
+    int iFlags;
+
+    iFlags = fcntl(fd, F_GETFL, 0);
+    iFlags |= O_NONBLOCK;
+    iFlags |= O_NDELAY;
+    return fcntl(fd, F_SETFL, iFlags);
+}
+
 static int iSuccCnt = 0;
 static int iFailCnt = 0;
 static int iTime = 0;
@@ -100,9 +110,6 @@ void AddFailCnt()
 
 static void *readwrite_routine( void *arg )
 {
-
-	co_enable_hook_sys();
-
 	stEndPoint *endpoint = (stEndPoint *)arg;
 	char str[8]="sarlmol";
 	char buf[ 1024 * 16 ];
@@ -113,10 +120,11 @@ static void *readwrite_routine( void *arg )
 		if ( fd < 0 )
 		{
 			fd = socket(PF_INET, SOCK_STREAM, 0);
+			SetNonBlock(fd);
+
 			struct sockaddr_in addr;
 			SetAddr(endpoint->ip, endpoint->port, addr);
 			ret = connect(fd,(struct sockaddr*)&addr,sizeof(addr));
-						
 			if ( errno == EALREADY || errno == EINPROGRESS )
 			{       
 				struct pollfd pf = { 0 };
@@ -146,12 +154,16 @@ static void *readwrite_routine( void *arg )
 					continue;
 				}       
 			} 
-	  			
 		}
 		
 		ret = write( fd,str, 8);
 		if ( ret > 0 )
 		{
+			struct pollfd pf = { 0 };
+			pf.fd = fd;
+			pf.events = (POLLIN|POLLERR|POLLHUP);
+			co_poll( co_get_epoll_ct(),&pf,1,200);
+
 			ret = read( fd,buf, sizeof(buf) );
 			if ( ret <= 0 )
 			{
@@ -179,40 +191,24 @@ static void *readwrite_routine( void *arg )
 	return 0;
 }
 
+/* ./example_echosvr 127.0.0.1 10000 100 */
 int main(int argc,char *argv[])
 {
 	stEndPoint endpoint;
 	endpoint.ip = argv[1];
 	endpoint.port = atoi(argv[2]);
 	int cnt = atoi( argv[3] );
-	int proccnt = atoi( argv[4] );
 	
 	struct sigaction sa;
 	sa.sa_handler = SIG_IGN;
 	sigaction( SIGPIPE, &sa, NULL );
 	
-	for(int k=0;k<proccnt;k++)
+	for(int i=0;i<cnt;i++)
 	{
-
-		pid_t pid = fork();
-		if( pid > 0 )
-		{
-			continue;
-		}
-		else if( pid < 0 )
-		{
-			break;
-		}
-		for(int i=0;i<cnt;i++)
-		{
-			stCoRoutine_t *co = 0;
-			co_create( &co,NULL,readwrite_routine, &endpoint);
-			co_resume( co );
-		}
-		co_eventloop( co_get_epoll_ct(),0,0 );
-
-		exit(0);
+		stCoRoutine_t *co = 0;
+		co_create( &co,NULL,readwrite_routine, &endpoint);
+		co_resume( co );
 	}
+	co_eventloop( co_get_epoll_ct(),0,0 );
 	return 0;
 }
-/*./example_echosvr 127.0.0.1 10000 100 50*/

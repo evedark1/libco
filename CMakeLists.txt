@@ -10,9 +10,7 @@ enable_language(C ASM)
 
 # Add source files
 set(SOURCE_FILES
-        co_comm.cpp
         co_epoll.cpp
-        co_hook_sys_call.cpp
         co_routine.cpp
         coctx.cpp
         coctx_swap.S)
@@ -26,12 +24,7 @@ macro(add_example_target EXAMPLE_TARGET)
     target_link_libraries("example_${EXAMPLE_TARGET}" colib_static pthread dl)
 endmacro(add_example_target)
 
-add_example_target(closure)
 add_example_target(cond)
-add_example_target(copystack)
 add_example_target(echocli)
 add_example_target(echosvr)
-add_example_target(poll)
-add_example_target(setenv)
-add_example_target(specific)
-add_example_target(thread)
+add_example_target(switch)

@@ -15,27 +15,9 @@ libco通过仅有的几个函数接口 co_create/co_resume/co_yield 再配合 co
 
 作者: sunnyxu(sunnyxu@tencent.com), leiffyli(leiffyli@tencent.com), dengoswei@gmail.com(dengoswei@tencent.com), sarlmolchen(sarlmolchen@tencent.com)
 
-PS: **近期将开源PaxosStore，敬请期待。**
-
-### libco的特性
-- 无需侵入业务逻辑，把多进程、多线程服务改造成协程服务，并发能力得到百倍提升;
-- 支持CGI框架，轻松构建web服务(New);
-- 支持gethostbyname、mysqlclient、ssl等常用第三库(New);
-- 可选的共享栈模式，单机轻松接入千万连接(New);
-- 完善简洁的协程编程接口
- * 类pthread接口设计，通过co_create、co_resume等简单清晰接口即可完成协程的创建与恢复；
- * __thread的协程私有变量、协程间通信的协程信号量co_signal (New);
- * 语言级别的lambda实现，结合协程原地编写并执行后台异步任务 (New);
- * 基于epoll/kqueue实现的小而轻的网络框架，基于时间轮盘实现的高性能定时器;
-
 ### Build
 
-```bash
-$ cd /path/to/libco
-$ make
-```
-
-or use cmake
+use cmake
 
 ```bash
 $ cd /path/to/libco
@@ -45,4 +27,10 @@ $ cmake ..
 $ make
 ```
 
+### 修改功能点
+
+原始实现存在一些潜在问题，对此进行了如下修复：
+
+- 不hook系统调用（hook系统调用基本不能适配任何第三方库，并发安全存在严重问题）
+- 去除对共享栈的支持，优化相关逻辑（共享栈会造成性能下降，并引入各种潜在的内存安全问题）
 
