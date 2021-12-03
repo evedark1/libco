@@ -45,6 +45,7 @@ struct stCoRoutineEnv_t {
     stCoRoutine_t *pCallStack[128];
     int iCallStackSize;
     stCoEpoll_t *pEpoll;
+    stCoRoutineLink_t activeRoutine;
 };
 
 void co_log_err(const char *fmt, ...)
@@ -194,17 +195,17 @@ struct stCoEpoll_t {
     struct stTimeoutItemLink_t *pstActiveList;
 };
 
-typedef void (*OnProcessPfn_t)(stTimeoutItem_t *);
 struct stTimeoutItem_t {
     stTimeoutItem_t *pPrev;
     stTimeoutItem_t *pNext;
     stTimeoutItemLink_t *pLink;
 
-    OnProcessPfn_t pfnProcess;
-    void *pArg; // routine
+    pfn_co_call_t func;
+    void *arg; // routine
 
     unsigned long long ullExpireTime;
     bool bTimeout;
+    bool bAutoFree;
 };
 
 struct stTimeoutItemLink_t {
@@ -290,22 +291,9 @@ void TakeAllTimeout(stTimeout_t *apTimeout, unsigned long long allNow, stTimeout
     apTimeout->llStartIdx += cnt - 1;
 }
 
-static int CoRoutineFunc(stCoRoutine_t *co, void *)
-{
-    if (co->pfn) {
-        co->pfn(co->arg);
-    }
-    co->cEnd = 1;
-
-    co_yield_env(co->env);
-	// never go here, because routine has exist and yield
-    return 0;
-}
-
 struct stCoRoutine_t *co_create_env(stCoRoutineEnv_t *env, const stCoRoutineAttr_t *attr,
     pfn_co_routine_t pfn, void *arg)
 {
-
     stCoRoutineAttr_t at;
     if (attr) {
         memcpy(&at, attr, sizeof(at));
@@ -322,7 +310,7 @@ struct stCoRoutine_t *co_create_env(stCoRoutineEnv_t *env, const stCoRoutineAttr
     }
 
     stCoRoutine_t *lp = (stCoRoutine_t *)malloc(sizeof(stCoRoutine_t));
-    memset(lp, 0, (long)(sizeof(stCoRoutine_t)));
+    memset(lp, 0, sizeof(stCoRoutine_t));
 
     lp->env = env;
     lp->pfn = pfn;
@@ -332,13 +320,6 @@ struct stCoRoutine_t *co_create_env(stCoRoutineEnv_t *env, const stCoRoutineAttr
     lp->stack_mem = stack_mem;
     lp->ctx.ss_sp = stack_mem->stack_buffer;
     lp->ctx.ss_size = at.stack_size;
-
-    lp->cStart = 0;
-    lp->cEnd = 0;
-    lp->cIsMain = 0;
-
-    lp->save_size = 0;
-    lp->save_buffer = NULL;
 
     return lp;
 }
@@ -360,7 +341,28 @@ void co_release(stCoRoutine_t *co)
     free(co);
 }
 
-void co_swap(stCoRoutine_t *curr, stCoRoutine_t *pending_co);
+void co_swap(stCoRoutine_t *curr, stCoRoutine_t *pending_co)
+{
+    //swap context
+    coctx_swap(&(curr->ctx), &(pending_co->ctx));
+}
+
+static int CoRoutineFunc(stCoRoutine_t *co, void *)
+{
+    stCoRoutineEnv_t *env = co->env;
+    AddTail(&(env->activeRoutine), co);
+
+    if (co->pfn) {
+        co->pfn(co->arg);
+    }
+    co->cEnd = 1;
+
+    RemoveFromLink<stCoRoutine_t, stCoRoutineLink_t>(co);
+    co_async_call(env->pEpoll, (pfn_co_call_t)co_release, co);
+    co_yield_env(co->env);
+	// never go here, because routine has exist and yield
+    return 0;
+}
 
 void co_resume(stCoRoutine_t *co)
 {
@@ -385,16 +387,6 @@ void co_yield_env(stCoRoutineEnv_t *env)
 void co_yield_ct()
 {
     co_yield_env(co_get_curr_thread_env());
-}
-
-void co_swap(stCoRoutine_t *curr, stCoRoutine_t *pending_co)
-{
-    //get curr stack sp
-    char c;
-    curr->stack_sp = &c;
-
-    //swap context
-    coctx_swap(&(curr->ctx), &(pending_co->ctx));
 }
 
 // ----------------------------- co_poll -------------------------
@@ -481,12 +473,6 @@ stCoRoutineEnv_t *co_get_curr_thread_env()
     return gCoEnvPerThread;
 }
 
-static void OnPollProcessEvent(stTimeoutItem_t *ap)
-{
-    stCoRoutine_t *co = (stCoRoutine_t *)ap->pArg;
-    co_resume(co);
-}
-
 static void OnPollPreparePfn(stPollItem_t *lp, struct epoll_event &e, stTimeoutItemLink_t *active)
 {
     lp->revents = EpollEvent2Poll(e.events);
@@ -508,12 +494,14 @@ void co_eventloop(stCoEpoll_t *ctx, pfn_co_eventloop_t pfn, void *arg)
     stTimeoutItemLink_t *active = ctx->pstActiveList;
 
     for (;;) {
+        // add epoll event
         int ret = co_epoll_wait(ctx->iEpollFd, result, stCoEpoll_t::_EPOLL_SIZE, 1);
         for (int i = 0; i < ret; i++) {
             stPollItem_t *item = (stPollItem_t *)result->events[i].data.ptr;
             OnPollPreparePfn(item, result->events[i], active);
         }
 
+        // add timeout event
         unsigned long long now = GetTickMS();
         memset(timeout, 0, sizeof(stTimeoutItemLink_t));
         TakeAllTimeout(ctx->pTimeout, now, timeout);
@@ -523,6 +511,13 @@ void co_eventloop(stCoEpoll_t *ctx, pfn_co_eventloop_t pfn, void *arg)
             lp = lp->pNext;
         }
         Join<stTimeoutItem_t, stTimeoutItemLink_t>(active, timeout);
+
+        // callback user function
+        if (pfn) {
+            if (pfn(arg) < 0) {
+                break;
+            }
+        }
 
         lp = active->head;
         while (lp) {
@@ -535,28 +530,19 @@ void co_eventloop(stCoEpoll_t *ctx, pfn_co_eventloop_t pfn, void *arg)
                     continue;
                 }
             }
-            if (lp->pfnProcess) {
-                lp->pfnProcess(lp);
-            }
+
+            bool autoFree = lp->bAutoFree;
+            if (lp->func)
+                lp->func(lp->arg);
+            if (autoFree)
+                free(lp);
 
             lp = active->head;
-        }
-
-        if (pfn) {
-            if (-1 == pfn(arg)) {
-                break;
-            }
         }
     }
 
     co_epoll_res_free(result);
     free(timeout);
-}
-
-void OnCoroutineEvent(stTimeoutItem_t *ap)
-{
-    stCoRoutine_t *co = (stCoRoutine_t *)ap->pArg;
-    co_resume(co);
 }
 
 stCoEpoll_t *AllocEpoll()
@@ -590,6 +576,15 @@ stCoRoutine_t *GetCurrThreadCo()
     return GetCurrCo(env);
 }
 
+void co_async_call(stCoEpoll_t *ctx, pfn_co_call_t func, void *arg)
+{
+    stTimeoutItem_t *timeout = (stTimeoutItem_t*)calloc(sizeof(stTimeoutItem_t), 1);
+    timeout->func = func;
+    timeout->arg = arg;
+    timeout->bAutoFree = true;
+    AddTail(ctx->pstActiveList, timeout);
+}
+
 typedef int (*poll_pfn_t)(struct pollfd fds[], nfds_t nfds, int timeout);
 int co_poll_inner(stCoEpoll_t *ctx, struct pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc)
 {
@@ -612,8 +607,8 @@ int co_poll_inner(stCoEpoll_t *ctx, struct pollfd fds[], nfds_t nfds, int timeou
         arg.pPollItems = (stPollItem_t *)malloc(nfds * sizeof(stPollItem_t));
     }
     memset(arg.pPollItems, 0, nfds * sizeof(stPollItem_t));
-    arg.pfnProcess = OnPollProcessEvent;
-    arg.pArg = GetCurrCo(co_get_curr_thread_env());
+    arg.func = (pfn_co_call_t)co_resume;
+    arg.arg = GetCurrCo(co_get_curr_thread_env());
 
     //2. add epoll
     for (nfds_t i = 0; i < nfds; i++) {
@@ -724,12 +719,6 @@ struct stCoCond_t {
     stCoCondItem_t *tail;
 };
 
-static void OnSignalProcessEvent(stTimeoutItem_t *ap)
-{
-    stCoRoutine_t *co = (stCoRoutine_t *)ap->pArg;
-    co_resume(co);
-}
-
 stCoCondItem_t *co_cond_pop(stCoCond_t *link)
 {
     stCoCondItem_t *p = link->head;
@@ -767,8 +756,8 @@ int co_cond_timedwait(stCoCond_t *link, int ms)
     stCoCondItem_t si;
     memset(&si, 0, sizeof(si));
     stCoCondItem_t *psi = &si;
-    psi->timeout.pArg = GetCurrThreadCo();
-    psi->timeout.pfnProcess = OnSignalProcessEvent;
+    psi->timeout.arg = GetCurrThreadCo();
+    psi->timeout.func = (pfn_co_call_t)co_resume;
 
     if (ms > 0) {
         unsigned long long now = GetTickMS();

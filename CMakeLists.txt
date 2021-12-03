@@ -24,6 +24,7 @@ macro(add_example_target EXAMPLE_TARGET)
     target_link_libraries("example_${EXAMPLE_TARGET}" colib_static pthread dl)
 endmacro(add_example_target)
 
+add_example_target(comem)
 add_example_target(cond)
 add_example_target(echocli)
 add_example_target(echosvr)

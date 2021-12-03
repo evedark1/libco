@@ -34,6 +34,11 @@ struct stStackMem_t {
     char *stack_buffer;
 };
 
+struct stCoRoutineLink_t {
+    stCoRoutine_t *head;
+    stCoRoutine_t *tail;
+};
+
 struct stCoRoutine_t {
     stCoRoutineEnv_t *env;
     pfn_co_routine_t pfn;
@@ -45,13 +50,11 @@ struct stCoRoutine_t {
     char cIsMain;
 
     stStackMem_t *stack_mem;
-
-    //save satck buffer while confilct on same stack_buffer;
-    char *stack_sp;
-    unsigned int save_size;
-    char *save_buffer;
-
     stCoSpec_t aSpec[1024];
+
+    stCoRoutine_t *pPrev;
+    stCoRoutine_t *pNext;
+    stCoRoutineLink_t *pLink;
 };
 
 //1.env
