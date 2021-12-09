@@ -39,4 +39,8 @@ struct coctx_t {
 int coctx_init(coctx_t *ctx);
 int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1);
 
+extern "C" {
+extern void coctx_swap(coctx_t *, coctx_t *) asm("coctx_swap");
+};
+
 #endif

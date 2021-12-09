@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.0)
 project(libco)
 
 # Set cflags
-set(CMAKE_C_FLAGS "-g -O2 -Wall -fno-strict-aliasing -D_GNU_SOURCE -D_REENTRANT")
-set(CMAKE_CXX_FLAGS "-g -O2 -Wall -fno-strict-aliasing -D_GNU_SOURCE -D_REENTRANT")
+set(CMAKE_C_FLAGS "-g -O2 -std=c++11 -DNDEBUG -Wall -fno-strict-aliasing -D_GNU_SOURCE -D_REENTRANT")
+set(CMAKE_CXX_FLAGS "-g -O2 -std=c++11 -DNDEBUG -Wall -fno-strict-aliasing -D_GNU_SOURCE -D_REENTRANT")
 
 # Use c and asm
 enable_language(C ASM)

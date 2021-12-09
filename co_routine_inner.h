@@ -57,26 +57,4 @@ struct stCoRoutine_t {
     stCoRoutineLink_t *pLink;
 };
 
-//1.env
-void co_init_curr_thread_env();
-stCoRoutineEnv_t *co_get_curr_thread_env();
-
-//2.coroutine
-void co_yield_env(stCoRoutineEnv_t *env);
-
-//3.func
-struct stTimeout_t;
-struct stTimeoutItem_t;
-
-stTimeout_t *AllocTimeout(int iSize);
-void FreeTimeout(stTimeout_t *apTimeout);
-int AddTimeout(stTimeout_t *apTimeout, stTimeoutItem_t *apItem, uint64_t allNow);
-
-struct stCoEpoll_t;
-stCoEpoll_t *AllocEpoll();
-void FreeEpoll(stCoEpoll_t *ctx);
-
-stCoRoutine_t *GetCurrCo(stCoRoutineEnv_t *env);
-stCoRoutine_t *GetCurrThreadCo();
-
 #endif
