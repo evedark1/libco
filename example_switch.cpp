@@ -22,59 +22,42 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-void AddSuccCnt()
-{
-    static int iSuccCnt = 0;
-    static int iTime = 0;
+static int co_count = 0;
 
-	int now = time(NULL);
-	if (now >iTime)
-	{
-		printf("time %d Succ Cnt %d\n", iTime, iSuccCnt);
-		iTime = now;
-		iSuccCnt = 0;
-	}
-	else
-	{
-		iSuccCnt++;
-	}
+int64_t get_clock_now()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+
+    return (int64_t)(ts.tv_sec * 1000L + ts.tv_nsec / 1000000L);
 }
 
-void *Producer(void *args)
+void *coroutine(void *args)
 {
-    stCoCond_t *cond = (stCoCond_t*)args;
     while (true) {
-        co_cond_signal(cond);
-        co_poll(co_get_epoll_ct(), NULL, 0, 1);
+        co_count++;
+        co_yield_ct();
     }
     return NULL;
 }
 
-void *Consumer(void *args)
-{
-    stCoCond_t *cond = (stCoCond_t*)args;
-    while (true) {
-        co_cond_timedwait(cond, -1);
-        AddSuccCnt();
-    }
-    return NULL;
-}
-
+// test countine switch speed
 int main(int argc, char **argv)
 {
+    if (argc != 2) {
+        printf("usage: %s count\n", argv[0]);
+        return 1;
+    }
     int cnt = atoi(argv[1]);
 
-    for(int i = 0; i < cnt; i++) {
-        stCoCond_t *cond = co_cond_alloc();
-        stCoRoutine_t *consumer_routine;
-        co_create(&consumer_routine, NULL, Consumer, cond);
-        co_resume(consumer_routine);
+    stCoRoutine_t *routine;
+    co_create(&routine, NULL, coroutine, NULL);
 
-        stCoRoutine_t *producer_routine;
-        co_create(&producer_routine, NULL, Producer, cond);
-        co_resume(producer_routine);
+    int64_t begin = get_clock_now();
+    for(int i = 0; i < cnt; i++) {
+        co_resume(routine);
     }
 
-    co_eventloop(co_get_epoll_ct(), NULL, NULL);
+    printf("co_count=%d time=%ldms\n", co_count, get_clock_now() - begin);
     return 0;
 }
