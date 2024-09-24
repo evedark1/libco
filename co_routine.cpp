@@ -338,8 +338,9 @@ static void co_yield_env(stCoRoutineEnv_t *env)
     co_swap(curr, last);
 }
 
-static int CoRoutineFunc(stCoRoutine_t *co, void *)
+void CoRoutineFunc(void *arg)
 {
+    stCoRoutine_t *co = (stCoRoutine_t*)arg;
     stCoRoutineEnv_t *env = co->env;
     AddTail(&(env->activeRoutine), co);
 
@@ -352,7 +353,7 @@ static int CoRoutineFunc(stCoRoutine_t *co, void *)
     co_async_call(env->pEpoll, (pfn_co_call_t)co_release, co);
     co_yield_env(co->env);
 	// never go here, because routine has exist and yield
-    return 0;
+    abort();
 }
 
 void co_resume(stCoRoutine_t *co)
@@ -360,7 +361,7 @@ void co_resume(stCoRoutine_t *co)
     stCoRoutineEnv_t *env = co->env;
     stCoRoutine_t *lpCurrRoutine = env->pCallStack[env->iCallStackSize - 1];
     if (!co->cStart) {
-        coctx_make(&co->ctx, (coctx_pfn_t)CoRoutineFunc, co, 0);
+        coctx_make(&co->ctx, co);
         co->cStart = 1;
     }
     env->pCallStack[env->iCallStackSize++] = co;

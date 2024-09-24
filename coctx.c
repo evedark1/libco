@@ -82,18 +82,22 @@ enum {
 };
 
 // 64 bit
-extern "C" {
 extern void coctx_swap(coctx_t *, coctx_t *) asm("coctx_swap");
-};
 
 #if defined(__i386__)
+
+struct coctx_param_t {
+    const void *s1;
+    const void *s2;
+};
 
 int coctx_init(coctx_t *ctx)
 {
     memset(ctx, 0, sizeof(*ctx));
     return 0;
 }
-int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1)
+
+int coctx_make(coctx_t *ctx, void *userdata)
 {
     // make room for coctx_param
     char *sp = ctx->ss_sp + ctx->ss_size - sizeof(coctx_param_t);
@@ -101,9 +105,9 @@ int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1)
 
     coctx_param_t *param = (coctx_param_t *)sp;
     void **ret_addr = (void **)(sp - sizeof(void *) * 2);
-    *ret_addr = (void *)pfn;
-    param->s1 = s;
-    param->s2 = s1;
+    *ret_addr = CoRoutineFunc;
+    param->s1 = userdata;
+    param->s2 = NULL;
 
     memset(ctx->regs, 0, sizeof(ctx->regs));
 
@@ -113,21 +117,21 @@ int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1)
 
 #elif defined(__x86_64__)
 
-int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1)
+int coctx_make(coctx_t *ctx, void *userdata)
 {
     char *sp = ctx->ss_sp + ctx->ss_size - sizeof(void *);
     sp = (char *)((unsigned long)sp & -16LL);
 
     memset(ctx->regs, 0, sizeof(ctx->regs));
     void **ret_addr = (void **)(sp);
-    *ret_addr = (void *)pfn;
+    *ret_addr = CoRoutineFunc;
 
     ctx->regs[kRSP] = sp;
 
-    ctx->regs[kRETAddr] = (char *)pfn;
+    ctx->regs[kRETAddr] = CoRoutineFunc;
 
-    ctx->regs[kRDI] = (char *)s;
-    ctx->regs[kRSI] = (char *)s1;
+    ctx->regs[kRDI] = userdata;
+    ctx->regs[kRSI] = NULL;
     return 0;
 }
 

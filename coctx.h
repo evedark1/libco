@@ -20,13 +20,11 @@
 #define __CO_CTX_H__
 #include <stdlib.h>
 
-typedef void *(*coctx_pfn_t)(void *s, void *s2);
-struct coctx_param_t {
-    const void *s1;
-    const void *s2;
-};
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-struct coctx_t {
+typedef struct coctx_t_ {
 #if defined(__i386__)
     void *regs[8];
 #else
@@ -34,13 +32,16 @@ struct coctx_t {
 #endif
     size_t ss_size;
     char *ss_sp;
-};
+} coctx_t;
 
 int coctx_init(coctx_t *ctx);
-int coctx_make(coctx_t *ctx, coctx_pfn_t pfn, const void *s, const void *s1);
+int coctx_make(coctx_t *ctx, void *userdata);
+void coctx_swap(coctx_t *cur, coctx_t *pending);
 
-extern "C" {
-extern void coctx_swap(coctx_t *, coctx_t *) asm("coctx_swap");
-};
+extern void CoRoutineFunc(void *arg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
