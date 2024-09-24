@@ -24,12 +24,12 @@
 extern "C" {
 #endif
 
+#include "md.h"
+
 typedef struct coctx_t_ {
-#if defined(__i386__)
-    void *regs[8];
-#else
-    void *regs[14];
-#endif
+    _st_jmp_buf_t context;
+    void *userdata;
+
     size_t ss_size;
     char *ss_sp;
 } coctx_t;
